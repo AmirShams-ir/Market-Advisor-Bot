@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import pandas as pd
 from twelvedata import TDClient
 
@@ -9,10 +10,10 @@ from core.database import create_symbol_tables, get_engine
 td = TDClient(apikey=API_KEY)
 
 
-def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANGE) -> pd.DataFrame:
+def fetch_timeframe(symbol: str, timeframe: str) -> pd.DataFrame:
     ts = td.time_series(
         symbol=symbol,
-        exchange=exchange,
+        exchange=DEFAULT_EXCHANGE,
         interval=timeframe,
         outputsize=FETCH_OUTPUTSIZE,
         timezone="UTC",
@@ -23,7 +24,6 @@ def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANG
         return df
 
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-
     for column in ("open", "high", "low", "close"):
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
@@ -60,25 +60,57 @@ def save_candles(df: pd.DataFrame, symbol: str, timeframe: str) -> int:
                     float(row["volume"]) if pd.notna(row["volume"]) else None,
                 ),
             )
-
     return len(df)
 
 
-def collect_symbol(symbol: str, exchange: str = DEFAULT_EXCHANGE, timeframes=None) -> None:
+def collect_symbol(symbol: str, timeframes=None) -> None:
     selected = timeframes or DEFAULT_TIMEFRAMES
     create_symbol_tables(symbol)
 
-    print(f"[SYMBOL] {symbol} ({exchange})")
+    print(f"[SYMBOL] {symbol}")
+    print(f"[DB] data/{symbol.replace('/', '_')}.db")
 
     for timeframe in selected:
         try:
-            df = fetch_timeframe(symbol, timeframe, exchange)
+            df = fetch_timeframe(symbol, timeframe)
             count = save_candles(df, symbol, timeframe)
 
             if count:
                 print(f"[OK] {symbol} {timeframe}: {count} candles")
             else:
                 print(f"[WARN] {symbol} {timeframe}: no data")
-
         except Exception as exc:
             print(f"[ERROR] {symbol} {timeframe}: {exc}")
+
+
+def update_symbol_timeframe(symbol: str, timeframe: str) -> None:
+    try:
+        df = fetch_timeframe(symbol, timeframe)
+        count = save_candles(df, symbol, timeframe)
+        print(f"[UPDATE] {symbol} {timeframe}: {count} candles")
+    except Exception as exc:
+        print(f"[ERROR] {symbol} {timeframe}: {exc}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Fetch Market Advisor Bot candle data")
+    parser.add_argument("--symbol", required=True, help="Twelve Data symbol, e.g. BTC/USD")
+    parser.add_argument("--timeframe", help="Fetch only one timeframe")
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Fetch all default timeframes for the symbol",
+    )
+    args = parser.parse_args()
+
+    if not API_KEY:
+        raise SystemExit("TWELVE_API_KEY is missing")
+
+    if args.bootstrap or not args.timeframe:
+        collect_symbol(args.symbol)
+    else:
+        update_symbol_timeframe(args.symbol, args.timeframe)
+
+
+if __name__ == "__main__":
+    main()
