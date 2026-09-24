@@ -4,13 +4,12 @@ import pandas as pd
 from twelvedata import TDClient
 
 from config import API_KEY, DEFAULT_EXCHANGE, DEFAULT_TIMEFRAMES, FETCH_OUTPUTSIZE
-from core.database import engine
+from core.database import create_symbol_tables, get_engine
 
 td = TDClient(apikey=API_KEY)
 
 
 def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANGE) -> pd.DataFrame:
-    """Fetch historical candles for one symbol/timeframe."""
     ts = td.time_series(
         symbol=symbol,
         exchange=exchange,
@@ -18,7 +17,6 @@ def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANG
         outputsize=FETCH_OUTPUTSIZE,
         timezone="UTC",
     )
-
     df = ts.as_pandas().reset_index()
 
     if df.empty:
@@ -38,20 +36,21 @@ def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANG
 
 
 def save_candles(df: pd.DataFrame, symbol: str, timeframe: str) -> int:
-    """Persist candles for one symbol/timeframe without duplicate primary keys."""
     if df.empty:
         return 0
+
+    create_symbol_tables(symbol)
+    engine = get_engine(symbol)
 
     with engine.begin() as conn:
         for row in df.to_dict(orient="records"):
             conn.exec_driver_sql(
                 """
                 INSERT OR REPLACE INTO candles
-                (symbol, timeframe, datetime, open, high, low, close, volume)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (timeframe, datetime, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    symbol,
                     timeframe,
                     row["datetime"].isoformat(),
                     float(row["open"]),
@@ -66,8 +65,8 @@ def save_candles(df: pd.DataFrame, symbol: str, timeframe: str) -> int:
 
 
 def collect_symbol(symbol: str, exchange: str = DEFAULT_EXCHANGE, timeframes=None) -> None:
-    """Bootstrap all selected timeframes for a single symbol."""
     selected = timeframes or DEFAULT_TIMEFRAMES
+    create_symbol_tables(symbol)
 
     print(f"[SYMBOL] {symbol} ({exchange})")
 
