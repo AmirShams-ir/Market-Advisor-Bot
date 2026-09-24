@@ -1,0 +1,10 @@
+[Unit]
+Description=Market Advisor Bot weekly timer (%i)
+
+[Timer]
+OnCalendar=Mon *-*-* 00:01:00
+Persistent=true
+Unit=market-advisor-fetch@%i-1week.service
+
+[Install]
+WantedBy=timers.target
