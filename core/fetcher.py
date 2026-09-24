@@ -1,39 +1,34 @@
 from __future__ import annotations
 
-from typing import Dict
-
 import pandas as pd
 from twelvedata import TDClient
 
-from config import API_KEY, FETCH_OUTPUTSIZE, SYMBOLS, TIMEFRAMES
+from config import API_KEY, DEFAULT_EXCHANGE, DEFAULT_TIMEFRAMES, FETCH_OUTPUTSIZE
 from core.database import engine
 
 td = TDClient(apikey=API_KEY)
 
-# Twelve Data intervals map to pandas resampling rules.
-RESAMPLE_RULES: Dict[str, str] = {}
 
-
-def fetch_timeframe(symbol: str, timeframe: str) -> pd.DataFrame:
-    """Fetch the base timeframe once for a symbol."""
+def fetch_timeframe(symbol: str, timeframe: str, exchange: str = DEFAULT_EXCHANGE) -> pd.DataFrame:
+    """Fetch historical candles for one symbol/timeframe."""
     ts = td.time_series(
         symbol=symbol,
-        exchange=__import__("config").EXCHANGE,
+        exchange=exchange,
         interval=timeframe,
         outputsize=FETCH_OUTPUTSIZE,
         timezone="UTC",
     )
+
     df = ts.as_pandas().reset_index()
 
     if df.empty:
         return df
 
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+
     for column in ("open", "high", "low", "close"):
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
-    # Volume is optional in Twelve Data responses for some instruments/markets.
-    # Keep the OHLC series usable even when volume is absent.
     if "volume" in df.columns:
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
     else:
@@ -42,37 +37,13 @@ def fetch_timeframe(symbol: str, timeframe: str) -> pd.DataFrame:
     return df.dropna(subset=["datetime", "open", "high", "low", "close"])
 
 
-def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    """Kept for compatibility; timeframes are now fetched directly from Twelve Data."""
-    result = df.copy()
-    result["symbol"] = df["symbol"].iloc[0]
-    result["timeframe"] = timeframe
-
-    columns = [
-        "symbol",
-        "timeframe",
-        "datetime",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]
-
-    return result[columns]
-
-
-def save_candles(df: pd.DataFrame) -> None:
-    """Persist candles, replacing an existing identical key."""
+def save_candles(df: pd.DataFrame, symbol: str, timeframe: str) -> int:
+    """Persist candles for one symbol/timeframe without duplicate primary keys."""
     if df.empty:
-        return
-
-    # SQLite primary key prevents duplicates, so write one row at a time
-    # with INSERT OR REPLACE for deterministic incremental updates.
-    rows = df.to_dict(orient="records")
+        return 0
 
     with engine.begin() as conn:
-        for row in rows:
+        for row in df.to_dict(orient="records"):
             conn.exec_driver_sql(
                 """
                 INSERT OR REPLACE INTO candles
@@ -80,8 +51,8 @@ def save_candles(df: pd.DataFrame) -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    row["symbol"],
-                    row["timeframe"],
+                    symbol,
+                    timeframe,
                     row["datetime"].isoformat(),
                     float(row["open"]),
                     float(row["high"]),
@@ -91,35 +62,24 @@ def save_candles(df: pd.DataFrame) -> None:
                 ),
             )
 
+    return len(df)
 
-def update_symbol(symbol: str) -> None:
-    """Fetch all configured timeframes directly from Twelve Data."""
-    for timeframe in TIMEFRAMES:
+
+def collect_symbol(symbol: str, exchange: str = DEFAULT_EXCHANGE, timeframes=None) -> None:
+    """Bootstrap all selected timeframes for a single symbol."""
+    selected = timeframes or DEFAULT_TIMEFRAMES
+
+    print(f"[SYMBOL] {symbol} ({exchange})")
+
+    for timeframe in selected:
         try:
-            df = fetch_timeframe(symbol, timeframe)
+            df = fetch_timeframe(symbol, timeframe, exchange)
+            count = save_candles(df, symbol, timeframe)
 
-            if df.empty:
-                print(f"[WARN] {symbol} {timeframe}: no data returned")
-                continue
-
-            df["symbol"] = symbol
-            df["timeframe"] = timeframe
-            save_candles(df[[
-                "symbol", "timeframe", "datetime",
-                "open", "high", "low", "close", "volume"
-            ]])
-
-            print(f"[OK] {symbol} {timeframe}: {len(df)} candles")
+            if count:
+                print(f"[OK] {symbol} {timeframe}: {count} candles")
+            else:
+                print(f"[WARN] {symbol} {timeframe}: no data")
 
         except Exception as exc:
             print(f"[ERROR] {symbol} {timeframe}: {exc}")
-
-
-def update_all() -> None:
-    """Fetch each symbol once; all configured timeframes are created locally."""
-    if not API_KEY:
-        print("[ERROR] TWELVE_API_KEY is missing")
-        return
-
-    for symbol in SYMBOLS:
-        update_symbol(symbol)
