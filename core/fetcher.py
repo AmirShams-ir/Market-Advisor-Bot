@@ -24,8 +24,10 @@ def fetch_base(symbol: str) -> pd.DataFrame:
     """Fetch the base timeframe once for a symbol."""
     ts = td.time_series(
         symbol=symbol,
+        exchange=__import__("config").EXCHANGE,
         interval=BASE_TIMEFRAME,
         outputsize=500,
+        timezone="UTC",
     )
     df = ts.as_pandas().reset_index()
 
