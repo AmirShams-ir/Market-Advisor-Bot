@@ -35,8 +35,15 @@ def fetch_base(symbol: str) -> pd.DataFrame:
         return df
 
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
-    for column in ("open", "high", "low", "close", "volume"):
+    for column in ("open", "high", "low", "close"):
         df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    # Volume is optional in Twelve Data responses for some instruments/markets.
+    # Keep the OHLC series usable even when volume is absent.
+    if "volume" in df.columns:
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+    else:
+        df["volume"] = 0.0
 
     return df.dropna(subset=["datetime", "open", "high", "low", "close"])
 
