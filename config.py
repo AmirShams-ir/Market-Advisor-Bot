@@ -10,10 +10,13 @@ DATABASE = "sqlite:///data/market.db"
 # Phase 1: fetch one base timeframe from Twelve Data and
 # build higher timeframes locally to reduce API credit usage.
 SYMBOLS = [
-    "BTC/USDT",
-    "ETH/USDT",
-    "BNB/USDT",
+    "BTC/USD",
+    "ETH/USD",
+    "BNB/USD",
 ]
+
+# Exchange is passed separately for cryptocurrency time series.
+EXCHANGE = "Binance"
 
 BASE_TIMEFRAME = "1min"
 
