@@ -18,12 +18,13 @@ SYMBOLS = [
 # Exchange is passed separately for cryptocurrency time series.
 EXCHANGE = "Binance"
 
-BASE_TIMEFRAME = "1min"
-
 TIMEFRAMES = [
-    "1min",
-    "5min",
-    "15min",
     "1h",
     "4h",
+    "1day",
+    "1week",
 ]
+
+# Collect each timeframe directly from Twelve Data.
+# Refresh is scheduled dynamically from the timeframe duration.
+FETCH_OUTPUTSIZE = 500
