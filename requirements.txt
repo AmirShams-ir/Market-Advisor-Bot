@@ -1,0 +1,5 @@
+twelvedata==1.2.25
+python-dotenv==1.1.1
+pandas==2.3.2
+sqlalchemy==2.0.43
+schedule==1.2.2
