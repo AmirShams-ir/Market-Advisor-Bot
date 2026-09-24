@@ -1,33 +1,53 @@
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 
 import schedule
 
-from config import TIMEFRAMES
-from core.fetcher import update_all
+from core.fetcher import fetch_timeframe, save_candles
 
-# The schedule is intentionally a little after the candle boundary so the
-# newly closed candle has time to become available at the provider.
-REFRESH_MINUTES = {
-    "1h": 61,
-    "4h": 241,
-    "1day": 24 * 60 + 1,
-    "1week": 7 * 24 * 60 + 1,
+
+REFRESH_DELTA = {
+    "1h": timedelta(hours=1, minutes=1),
+    "4h": timedelta(hours=4, minutes=1),
+    "1day": timedelta(days=1, minutes=1),
+    "1week": timedelta(days=7, minutes=1),
 }
 
 
-def schedule_updates() -> None:
-    for timeframe in TIMEFRAMES:
-        minutes = REFRESH_MINUTES[timeframe]
-        schedule.every(minutes).minutes.do(update_all)
+def update_symbol_timeframe(symbol: str, exchange: str, timeframe: str) -> None:
+    try:
+        df = fetch_timeframe(symbol, timeframe, exchange)
+        count = save_candles(df, symbol, timeframe)
+        print(f"[UPDATE] {symbol} {timeframe}: {count} candles refreshed")
+    except Exception as exc:
+        print(f"[ERROR] {symbol} {timeframe}: {exc}")
 
 
-def run() -> None:
-    update_all()
-    schedule_updates()
+def schedule_symbol(config) -> None:
+    for timeframe in config.timeframes:
+        delay = REFRESH_DELTA[timeframe]
+        schedule.every(delay.total_seconds() / 60).minutes.do(
+            update_symbol_timeframe,
+            config.symbol,
+            config.exchange,
+            timeframe,
+        )
+        print(f"[TIMER] {config.symbol} {timeframe}: every {delay}")
 
-    print("[RUNNING] Market Advisor Bot data collector")
+
+def run_scheduled(configs) -> None:
+    enabled = [c for c in configs if c.auto_update]
+
+    if not enabled:
+        print("[IDLE] Scheduled updates disabled")
+        return
+
+    for config in enabled:
+        schedule_symbol(config)
+
+    print("[RUNNING] Market Advisor Bot scheduler")
 
     while True:
         schedule.run_pending()
