@@ -5,28 +5,22 @@ from typing import Dict
 import pandas as pd
 from twelvedata import TDClient
 
-from config import API_KEY, BASE_TIMEFRAME, SYMBOLS, TIMEFRAMES
+from config import API_KEY, FETCH_OUTPUTSIZE, SYMBOLS, TIMEFRAMES
 from core.database import engine
 
 td = TDClient(apikey=API_KEY)
 
 # Twelve Data intervals map to pandas resampling rules.
-RESAMPLE_RULES: Dict[str, str] = {
-    "1min": "1min",
-    "5min": "5min",
-    "15min": "15min",
-    "1h": "1h",
-    "4h": "4h",
-}
+RESAMPLE_RULES: Dict[str, str] = {}
 
 
-def fetch_base(symbol: str) -> pd.DataFrame:
+def fetch_timeframe(symbol: str, timeframe: str) -> pd.DataFrame:
     """Fetch the base timeframe once for a symbol."""
     ts = td.time_series(
         symbol=symbol,
         exchange=__import__("config").EXCHANGE,
-        interval=BASE_TIMEFRAME,
-        outputsize=500,
+        interval=timeframe,
+        outputsize=FETCH_OUTPUTSIZE,
         timezone="UTC",
     )
     df = ts.as_pandas().reset_index()
@@ -49,28 +43,8 @@ def fetch_base(symbol: str) -> pd.DataFrame:
 
 
 def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    """Build a higher timeframe locally from the base OHLCV data."""
-    if timeframe == BASE_TIMEFRAME:
-        result = df.copy()
-    else:
-        rule = RESAMPLE_RULES[timeframe]
-        work = df.set_index("datetime").sort_index()
-
-        result = (
-            work.resample(rule, label="left", closed="left")
-            .agg(
-                {
-                    "open": "first",
-                    "high": "max",
-                    "low": "min",
-                    "close": "last",
-                    "volume": "sum",
-                }
-            )
-            .dropna(subset=["open", "high", "low", "close"])
-            .reset_index()
-        )
-
+    """Kept for compatibility; timeframes are now fetched directly from Twelve Data."""
+    result = df.copy()
     result["symbol"] = df["symbol"].iloc[0]
     result["timeframe"] = timeframe
 
@@ -119,26 +93,26 @@ def save_candles(df: pd.DataFrame) -> None:
 
 
 def update_symbol(symbol: str) -> None:
-    """Use one Twelve Data call per symbol, then build all timeframes locally."""
-    try:
-        base = fetch_base(symbol)
+    """Fetch all configured timeframes directly from Twelve Data."""
+    for timeframe in TIMEFRAMES:
+        try:
+            df = fetch_timeframe(symbol, timeframe)
 
-        if base.empty:
-            print(f"[WARN] {symbol}: no data returned")
-            return
+            if df.empty:
+                print(f"[WARN] {symbol} {timeframe}: no data returned")
+                continue
 
-        base["symbol"] = symbol
+            df["symbol"] = symbol
+            df["timeframe"] = timeframe
+            save_candles(df[[
+                "symbol", "timeframe", "datetime",
+                "open", "high", "low", "close", "volume"
+            ]])
 
-        for timeframe in TIMEFRAMES:
-            candles = resample_ohlcv(base, timeframe)
-            save_candles(candles)
-            print(
-                f"[OK] {symbol} {timeframe}: "
-                f"{len(candles)} candles (local)"
-            )
+            print(f"[OK] {symbol} {timeframe}: {len(df)} candles")
 
-    except Exception as exc:
-        print(f"[ERROR] {symbol}: {exc}")
+        except Exception as exc:
+            print(f"[ERROR] {symbol} {timeframe}: {exc}")
 
 
 def update_all() -> None:
