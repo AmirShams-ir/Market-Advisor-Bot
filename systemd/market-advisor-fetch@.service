@@ -8,4 +8,4 @@ Type=oneshot
 User=amir
 WorkingDirectory=/home/amir/Market-Advisor-Bot
 EnvironmentFile=/home/amir/Market-Advisor-Bot/.env
-ExecStart=/usr/bin/python3 /home/amir/Market-Advisor-Bot/core/fetcher.py --symbol %i --timeframe %I
+ExecStart=/home/amir/Market-Advisor-Bot/.venv/bin/python /home/amir/Market-Advisor-Bot/core/fetcher.py --symbol %i --timeframe %I
